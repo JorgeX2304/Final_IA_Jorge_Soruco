@@ -1,0 +1,2 @@
+# Final_IA_Jorge_Soruco
+final_ia_jorge_soruco
