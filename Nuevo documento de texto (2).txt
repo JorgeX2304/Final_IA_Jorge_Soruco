@@ -1,0 +1,93 @@
+import bpy
+import json
+import os
+import random
+
+# Rutas locales
+ruta_json = "C:/Users/soruc/OneDrive/Documentos/clusters_visuales12.json"
+ruta_texturas = "C:/Users/soruc/OneDrive/Documentos/texturas/"
+
+# Cargar JSON de clusters
+with open(ruta_json, 'r') as f:
+    clusters = json.load(f)
+
+# Agrupar imágenes por cluster
+grupos = {}
+for nombre_img, cluster_id in clusters.items():
+    grupos.setdefault(cluster_id, []).append(nombre_img)
+
+# Registro de materiales y control de uso
+materiales = {}
+texturas_utilizadas = {cid: [] for cid in grupos}
+
+def obtener_material(cluster_id, nombre_textura):
+    if cluster_id not in materiales:
+        mat = bpy.data.materials.new(name=f"Cluster_{cluster_id}")
+        mat.use_nodes = True
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        tex_node = mat.node_tree.nodes.new("ShaderNodeTexImage")
+        img_path = os.path.join(ruta_texturas, nombre_textura)
+        if os.path.exists(img_path):
+            tex_node.image = bpy.data.images.load(img_path)
+            mat.node_tree.links.new(bsdf.inputs['Base Color'], tex_node.outputs['Color'])
+            materiales[cluster_id] = mat
+    return materiales.get(cluster_id)
+
+class RECOMENDAR_OT_Textura(bpy.types.Operator):
+    bl_idname = "object.recomendar_textura_visual"
+    bl_label = "Aplicar textura inteligente (sin repetir)"
+
+    def execute(self, context):
+        obj = context.active_object
+        if obj and obj.type == 'MESH':
+            cluster_id = random.choice(range(0, 6)) if obj.dimensions.length > 4 else random.choice(range(6, 12))
+            disponibles = [tex for tex in grupos[cluster_id] if tex not in texturas_utilizadas[cluster_id]]
+
+            if not disponibles:
+                self.report({'INFO'}, f"Todas las texturas del grupo {cluster_id} ya fueron usadas. Reiniciando grupo.")
+                texturas_utilizadas[cluster_id] = []
+                disponibles = grupos[cluster_id]
+
+            nombre_textura = random.choice(disponibles)
+            texturas_utilizadas[cluster_id].append(nombre_textura)
+            mat = obtener_material(cluster_id, nombre_textura)
+
+            if mat:
+                obj.data.materials.clear()
+                obj.data.materials.append(mat)
+                self.report({'INFO'}, f"Textura '{nombre_textura}' del grupo {cluster_id} aplicada.")
+                return {'FINISHED'}
+
+        self.report({'WARNING'}, "No se pudo aplicar textura.")
+        return {'CANCELLED'}
+
+class RESETEAR_OT_Texturas(bpy.types.Operator):
+    bl_idname = "object.resetear_texturas_visual"
+    bl_label = "Resetear Texturas Usadas"
+
+    def execute(self, context):
+        global texturas_utilizadas
+        texturas_utilizadas = {cid: [] for cid in grupos}
+        self.report({'INFO'}, "✔️ Registro de texturas reiniciado.")
+        return {'FINISHED'}
+
+class TEXTURE_PT_IA(bpy.types.Panel):
+    bl_label = "Textura Visual Inteligente"
+    bl_idname = "OBJECT_PT_textura_visual"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'IA Procedural'
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="Asignación automática:")
+        layout.operator("object.recomendar_textura_visual", icon='MATERIAL')
+        layout.separator()
+        layout.operator("object.resetear_texturas_visual", icon='FILE_REFRESH')
+
+def register():
+    bpy.utils.register_class(RECOMENDAR_OT_Textura)
+    bpy.utils.register_class(RESETEAR_OT_Texturas)
+    bpy.utils.register_class(TEXTURE_PT_IA)
+
+register()

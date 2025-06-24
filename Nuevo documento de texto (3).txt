@@ -1,0 +1,167 @@
+import bpy
+import json
+import os
+import random
+
+# 📂 Ruta al JSON generado por Colab (asegúrate que exista)
+ruta_json = "C:/Users/soruc/OneDrive/Documentos/clusters_visuales23.json"
+ruta_texturas = "C:/Users/soruc/OneDrive/Documentos/texturas/"
+
+# Cargar clustering
+with open(ruta_json, 'r') as f:
+    clusters = json.load(f)
+
+# Agrupar imágenes por cluster
+grupos = {}
+for nombre_img, cluster_id in clusters.items():
+    grupos.setdefault(cluster_id, []).append(nombre_img)
+
+# Control de materiales y texturas usadas
+materiales = {}
+texturas_utilizadas = {cid: [] for cid in grupos}
+
+def obtener_material(cluster_id, nombre_textura):
+    if cluster_id not in materiales:
+        mat = bpy.data.materials.new(name=f"Cluster_{cluster_id}")
+        mat.use_nodes = True
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        tex_node = mat.node_tree.nodes.new("ShaderNodeTexImage")
+        img_path = os.path.join(ruta_texturas, nombre_textura)
+        if os.path.exists(img_path):
+            tex_node.image = bpy.data.images.load(img_path)
+            mat.node_tree.links.new(bsdf.inputs['Base Color'], tex_node.outputs['Color'])
+            materiales[cluster_id] = mat
+    return materiales.get(cluster_id)
+
+# 🔘 1. Aplicar textura inteligente
+class RECOMENDAR_OT_Textura(bpy.types.Operator):
+    bl_idname = "object.recomendar_textura_visual"
+    bl_label = "Aplicar textura (inteligente)"
+
+    def execute(self, context):
+        obj = context.active_object
+        if obj and obj.type == 'MESH':
+            cluster_id = random.choice(range(0, 6)) if obj.dimensions.length > 4 else random.choice(range(6, 12))
+            disponibles = [t for t in grupos[cluster_id] if t not in texturas_utilizadas[cluster_id]]
+            if not disponibles:
+                texturas_utilizadas[cluster_id] = []
+                disponibles = grupos[cluster_id]
+            nombre_textura = random.choice(disponibles)
+            texturas_utilizadas[cluster_id].append(nombre_textura)
+            mat = obtener_material(cluster_id, nombre_textura)
+            if mat:
+                obj.data.materials.clear()
+                obj.data.materials.append(mat)
+                self.report({'INFO'}, f"Textura '{nombre_textura}' del grupo {cluster_id} aplicada.")
+                return {'FINISHED'}
+        self.report({'WARNING'}, "No se pudo aplicar textura.")
+        return {'CANCELLED'}
+
+# 🔘 2. Resetear uso de texturas
+class RESETEAR_OT_Texturas(bpy.types.Operator):
+    bl_idname = "object.resetear_texturas_visual"
+    bl_label = "Resetear Texturas Usadas"
+
+    def execute(self, context):
+        global texturas_utilizadas
+        texturas_utilizadas = {cid: [] for cid in grupos}
+        self.report({'INFO'}, "✔️ Texturas disponibles reiniciadas.")
+        return {'FINISHED'}
+
+# 🔘 3. Sugerir estilo visual (solo muestra, no aplica)
+class SUGERIR_OT_Cluster(bpy.types.Operator):
+    bl_idname = "object.sugerir_cluster_visual"
+    bl_label = "Sugerir estilo visual"
+
+    def execute(self, context):
+        obj = context.active_object
+        if obj:
+            sugerido = random.choice(range(0, 6)) if obj.dimensions.length > 4 else random.choice(range(6, 12))
+            self.report({'INFO'}, f"📌 Objeto '{obj.name}' sugiere Cluster {sugerido}.")
+            return {'FINISHED'}
+        self.report({'WARNING'}, "No hay objeto activo.")
+        return {'CANCELLED'}
+
+# 🔘 4. Aplicar textura a múltiples objetos seleccionados
+class APLICAR_OT_SobreSeleccionados(bpy.types.Operator):
+    bl_idname = "object.aplicar_a_seleccionados"
+    bl_label = "Texturizar selección"
+
+    def execute(self, context):
+        seleccionados = context.selected_objects
+        if not seleccionados:
+            self.report({'WARNING'}, "No hay objetos seleccionados.")
+            return {'CANCELLED'}
+
+        for obj in seleccionados:
+            if obj.type == 'MESH':
+                cluster_id = random.choice(range(0, 6)) if obj.dimensions.length > 4 else random.choice(range(6, 12))
+                disponibles = [t for t in grupos[cluster_id] if t not in texturas_utilizadas[cluster_id]]
+                if not disponibles:
+                    texturas_utilizadas[cluster_id] = []
+                    disponibles = grupos[cluster_id]
+                nombre_textura = random.choice(disponibles)
+                texturas_utilizadas[cluster_id].append(nombre_textura)
+                mat = obtener_material(cluster_id, nombre_textura)
+                if mat:
+                    obj.data.materials.clear()
+                    obj.data.materials.append(mat)
+        self.report({'INFO'}, "✅ Texturas aplicadas a toda la selección.")
+        return {'FINISHED'}
+
+# 🔘 5. Comparar dos texturas posibles en duplicado
+class COMPARAR_OT_DosTexturas(bpy.types.Operator):
+    bl_idname = "object.comparar_texturas"
+    bl_label = "Comparar dos texturas"
+
+    def execute(self, context):
+        obj = context.active_object
+        if not obj or obj.type != 'MESH':
+            self.report({'WARNING'}, "Selecciona un objeto tipo MESH.")
+            return {'CANCELLED'}
+
+        cluster_id = random.choice(list(grupos.keys()))
+        opciones = random.sample(grupos[cluster_id], k=2)
+
+        for i, tex_name in enumerate(opciones):
+            copia = obj.copy()
+            copia.data = obj.data.copy()
+            copia.location.x += (i + 1) * 2.5
+            mat = obtener_material(cluster_id, tex_name)
+            if mat:
+                copia.data.materials.clear()
+                copia.data.materials.append(mat)
+                context.collection.objects.link(copia)
+        self.report({'INFO'}, f"Comparación creada con 2 texturas del grupo {cluster_id}.")
+        return {'FINISHED'}
+
+# 🧭 Panel UI actualizado
+class TEXTURE_PT_IA(bpy.types.Panel):
+    bl_label = "Textura Visual Inteligente"
+    bl_idname = "OBJECT_PT_textura_visual"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'IA Procedural'
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="🎨 Aplicación individual:")
+        layout.operator("object.recomendar_textura_visual", icon='MATERIAL')
+        layout.operator("object.sugerir_cluster_visual", icon='INFO')
+        layout.separator()
+        layout.label(text="🧩 Varias opciones:")
+        layout.operator("object.comparar_texturas", icon='VIEWZOOM')
+        layout.operator("object.aplicar_a_seleccionados", icon='GROUP')
+        layout.separator()
+        layout.operator("object.resetear_texturas_visual", icon='FILE_REFRESH')
+
+# 🔧 Registro de clases
+def register():
+    bpy.utils.register_class(RECOMENDAR_OT_Textura)
+    bpy.utils.register_class(RESETEAR_OT_Texturas)
+    bpy.utils.register_class(SUGERIR_OT_Cluster)
+    bpy.utils.register_class(APLICAR_OT_SobreSeleccionados)
+    bpy.utils.register_class(COMPARAR_OT_DosTexturas)
+    bpy.utils.register_class(TEXTURE_PT_IA)
+
+register()

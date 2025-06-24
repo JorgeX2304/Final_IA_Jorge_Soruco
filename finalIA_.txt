@@ -1,0 +1,67 @@
+import bpy
+import json
+import os
+
+# Ruta del JSON exportado desde Colab
+ruta_json = "C:\\Users\\soruc\\OneDrive\\Documentos\\clusters_texturas.json"
+ruta_texturas = "C:\\Users\\soruc\\OneDrive\\Documentos\\texturas\\"
+
+# Carga JSON
+with open(ruta_json, 'r') as f:
+    clusters = json.load(f)
+
+# Diccionario de materiales por cluster
+materiales = {}
+
+def obtener_material(cluster_id, nombre_textura):
+    if cluster_id not in materiales:
+        mat = bpy.data.materials.new(name=f"Cluster_{cluster_id}")
+        mat.use_nodes = True
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        tex_node = mat.node_tree.nodes.new("ShaderNodeTexImage")
+        img_path = os.path.join(ruta_texturas, nombre_textura)
+        tex_node.image = bpy.data.images.load(img_path)
+        mat.node_tree.links.new(bsdf.inputs['Base Color'], tex_node.outputs['Color'])
+        materiales[cluster_id] = mat
+    return materiales[cluster_id]
+
+# Operador para recomendar textura automáticamente
+class RECOMENDAR_OT_Textura(bpy.types.Operator):
+    bl_idname = "object.recomendar_textura"
+    bl_label = "Recomendar textura al objeto activo"
+
+    def execute(self, context):
+        obj = context.active_object
+        if obj and obj.type == 'MESH':
+            dimensiones = obj.dimensions
+            if dimensiones.length > 4.0:
+                cluster_id = 1  # Ejemplo: objetos grandes → cluster 1
+            else:
+                cluster_id = 0  # objetos pequeños → cluster 0
+
+            for nombre_img, cid in clusters.items():
+                if cid == cluster_id:
+                    mat = obtener_material(cid, nombre_img)
+                    obj.data.materials.clear()
+                    obj.data.materials.append(mat)
+                    break
+
+        return {'FINISHED'}
+
+# Panel en la UI
+class TEXTURE_PT_IA(bpy.types.Panel):
+    bl_label = "Textura Inteligente IA"
+    bl_idname = "OBJECT_PT_textura_ia"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'IA Procedural'
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator("object.recomendar_textura")
+
+def register():
+    bpy.utils.register_class(RECOMENDAR_OT_Textura)
+    bpy.utils.register_class(TEXTURE_PT_IA)
+
+register()
